@@ -1,10 +1,12 @@
-# CookieSuite – Betriebshandbuch (Operations Guide)
+# CookieSuite – Betriebshandbuch
 
-> **Stand:** 13. November 2026 · **Projekt:** CookieCraft / DevOps-Challenge  
-> **Zielgruppe:** neue Administratorinnen und Administratoren, Entwicklerinnen und Entwickler sowie Personen ohne tiefere Linux-/Docker-Erfahrung  
-> **Quellcode:** https://github.com/vanthunder/CookieSuite  
-> **Produktiv-URL:** https://cookiecraft.bizfactory.tech  
-> **Wichtig:** Diese Datei ist für ein **öffentliches Repository** geschrieben. Passwörter, private Schlüssel, produktive `.env`-Dateien und persönliche Zugangsdaten dürfen nicht eingecheckt werden.
+| Angabe | Wert |
+| --- | --- |
+| Dienst | CookieSuite der CookieCraft AG |
+| Stand | 13. November 2026 |
+| Zielgruppe | Betrieb, Entwicklung und Personen, die den Dienst übernehmen |
+| Produktiv-URL | [CookieSuite](https://cookiecraft.bizfactory.tech) |
+| Quellcode | [GitHub-Repository](https://github.com/vanthunder/CookieSuite) |
 
 ---
 
@@ -22,7 +24,7 @@
 10. [Mailserver: Postfix und lokale E-Mails](#10-mailserver-postfix-und-lokale-e-mails)
 11. [Nginx, HTTPS und Zertifikate](#11-nginx-https-und-zertifikate)
 12. [Continuous Integration (CI)](#12-continuous-integration-ci)
-13. [Continuous Delivery / Deployment (CD)](#13-continuous-delivery--deployment-cd)
+13. [Automatisierte Releases](#13-automatisierte-releases)
 14. [Sicherheit und Benutzerverwaltung](#14-sicherheit-und-benutzerverwaltung)
 15. [Logs, Wartung und Fehlerbehebung](#15-logs-wartung-und-fehlerbehebung)
 16. [Notfall- und Übergabecheckliste](#16-notfall--und-übergabecheckliste)
@@ -32,13 +34,13 @@
 
 ## 1. Schnellstart: Die wichtigsten Befehle
 
-**Diese Anleitung geht davon aus, dass der spätere Administrator einen SSH-Key und `sudo`-Rechte besitzt.** Im derzeitigen Challenge-Aufbau wird noch ein Root-SSH-Konto verwendet; der dedizierte Administrator `cookieops` ist **geplant, aber noch nicht eingerichtet**.
+Der Produktivserver wird über das Administratorkonto `cookieops` gewartet. Die Anmeldung erfolgt mit einem SSH-Schlüssel. Für Wartungsbefehle mit erhöhten Rechten verwendet das Konto `sudo`. Wer einen Zugang für eine weitere Person oder einen weiteren Rechner einrichtet, beginnt mit [Kapitel 5](#5-auf-den-server-zugreifen).
 
 | Ziel | Befehl bzw. Ort |
 | --- | --- |
 | Website öffnen | https://cookiecraft.bizfactory.tech |
 | Anmeldung über einen *lokal eingerichteten* SSH-Alias | `ssh cookiecraft` |
-| Anmeldung ohne Alias, nach Einrichtung des neuen Benutzers | `ssh cookieops@cookiecraft.bizfactory.tech` |
+| Anmeldung ohne Alias mit dem eigenen Schlüssel | [Anmeldebefehl in Abschnitt 5.4](#54-zum-ersten-mal-anmelden-und-rechte-prüfen) |
 | In das Anwendungsverzeichnis wechseln | `cd /opt/cookiesuite` |
 | Containerstatus | `sudo docker compose ps` |
 | App-Logs | `sudo docker compose logs --tail=100 app` |
@@ -53,11 +55,11 @@
 | Lokale Admin-Mails lesen | `sudo less /var/mail/cookieadmin` |
 | Automatische CI-Tests | https://github.com/vanthunder/CookieSuite/actions |
 
-**Goldene Regel:** Vor einem riskanten Update zuerst den Zustand prüfen, ein Datenbank-Backup erstellen und überlegen, wie das Update zurückgenommen werden kann. Die Befehle `docker compose down -v` und `docker volume rm` **nicht** für gewöhnliche Updates verwenden: Sie können gespeicherte Daten löschen.
+Vor einem Release den laufenden Stand erfassen, ein Datenbank-Backup erstellen und den Rückweg festlegen. Befehle mit Auswirkungen auf persistente Daten stehen in [Abschnitt 15.3](#153-besonders-vorsichtig-bei-diesen-befehlen).
 
 ### Was wird wo ausgeführt?
 
-- **Windows-PC:** Programmierung mit VS Code, GitHub Desktop, SSH-Verbindung.
+- **Eigener Rechner (Windows, macOS oder Linux):** SSH-Verbindung und Arbeit am lokalen Git-Checkout.
 - **Ubuntu-Host:** Nginx, Certbot, Postfix, UFW, SSH, Backup-Skript und Docker-Engine.
 - **App-Container:** PHP, Laravel, Apache und Artisan-Befehle.
 - **Datenbank-Container:** PostgreSQL, `pg_dump`, `pg_restore` und Datenbankoperationen.
@@ -67,12 +69,12 @@
 
 ## 2. Aktueller Betriebsstand
 
-Die folgenden Angaben dokumentieren den **zuletzt während der Challenge geprüften Stand**. Sie ersetzen keine neue Prüfung nach späteren Änderungen.
+Diese Übersicht beschreibt den Produktivserver und die verfügbaren Betriebsfunktionen zum oben genannten Stand.
 
 | Bestandteil | Beobachteter Stand | Bedeutung |
 | --- | --- | --- |
 | Betriebssystem | Ubuntu 24.04 LTS | Produktiv-VM |
-| Serverressourcen | 4 vCPU, 8 GB RAM, ca. 160 GB nomineller Speicher | Ausreichend für die Demo |
+| Serverressourcen | 4 vCPU, 8 GB RAM, ca. 160 GB nomineller Plattenspeicher | Einzelner Ubuntu-Host |
 | Docker / Compose | Installiert und funktionierend | Ausführung der Container |
 | Laravel / Apache | PHP 8.3 im App-Container | Anwendung |
 | PostgreSQL | PostgreSQL 16; Healthcheck erfolgreich | Datenbank |
@@ -80,18 +82,16 @@ Die folgenden Angaben dokumentieren den **zuletzt während der Challenge geprüf
 | Reverse Proxy | Host-Nginx auf HTTP/HTTPS | Leitet Anfragen an Docker weiter |
 | HTTPS | Let's-Encrypt-Zertifikat; HTTP 301 → HTTPS 200 bestätigt | Verschlüsselte Website |
 | SMTP | Postfix auf dem Ubuntu-Host | Annahme von Laravel-Mails |
-| Lokale Mailzustellung | Funktioniert laut abgeschlossenem Funktionstest | Demonstrationsbetrieb |
-| Externe Mailzustellung | **Nicht zuverlässig funktionsfähig** | Empfänger lehnten die Cloud-Absender-IP ab |
+| Lokale Mailzustellung | Zustellung an `cookieadmin` beim Anlegen eines Kekses geprüft | Benachrichtigung im lokalen Systempostfach |
+| Externe Mailzustellung | Empfängerserver haben den direkten Versand abgelehnt | Externer Versand bleibt offen |
 | Backups | Manueller Datenbankdump erfolgreich; täglicher Cronjob eingerichtet | Lokale Datensicherung |
-| SSH | Schlüsselanmeldung eingerichtet, Passwortlogin deaktiviert | Administrationszugang |
+| SSH | Schlüsselanmeldung als `cookieops` getestet, SSH-Passwortlogin deaktiviert | Wartungszugang auf Port 22 |
 | UFW | Aktiv; öffentlich vorgesehen: 22, 80, 443/TCP | Netzwerkzugriff einschränken |
 | GitHub Actions | Workflow auf `main`; grüner Lauf bestätigt | CI |
-| Continuous Deployment | **Nur als Konzept vorhanden** | Noch kein automatischer Produktiv-Rollout |
-| Eigener Admin-Benutzer | **Noch nicht angelegt** | Nächster Sicherheits-Schritt |
-| Offsite-Backup / Restore-Probe | **Noch nicht nachgewiesen** | Offener Produktionspunkt |
-| Kubernetes | Getrennte Challenge; nicht Teil dieses Produktivsystems | Noch separat bearbeiten |
-
-**Wichtige Einschränkung beim SMTP-Häkchen:** Die lokale Zustellung beweist, dass Laravel → Postfix → lokales Admin-Postfach funktioniert. Das ist **nicht gleichbedeutend** mit erfolgreichem Versand an beliebige externe Adressen.
+| Produktiv-Releases | Manueller Rollout nach CI-Prüfung | Ablauf in Kapitel 8 |
+| Administratorkonto | `cookieops` mit `sudo` eingerichtet | Erhöhte Rechte bei Bedarf |
+| Root-Anmeldung per SSH | `PermitRootLogin no` in der Hauptkonfiguration vor den eingebundenen Dateien. Der bisherige Root-Schlüssel wurde beim Login abgewiesen. | Direkter Root-SSH-Zugang gesperrt |
+| Offsite-Backup und Restore-Probe | Ausstehend | Wiederherstellung nach Hostverlust noch nicht erprobt |
 
 ---
 
@@ -99,59 +99,44 @@ Die folgenden Angaben dokumentieren den **zuletzt während der Challenge geprüf
 
 ### 3.1 Gesamtbild
 
-~~~text
-                  Nutzer / Mitarbeiter
-                          |
-          http://cookiecraft.bizfactory.tech
-          https://cookiecraft.bizfactory.tech
-                          |
-                          v
-                 NGINX (Ubuntu-Host)
-               HTTP :80 / HTTPS :443
-                 TLS via Let's Encrypt
-                          |
-                  127.0.0.1:8080
-                          |
-                          v
-                +-------------------+
-                | DOCKER COMPOSE    |
-                |                   |
-                | app               |
-                | PHP 8.3 + Apache  |
-                | Laravel CookieSuite|
-                |        |          |
-                |        +-------> db (PostgreSQL 16)
-                |        |          |  Port 5432 intern
-                |        |          +-- Volume: pgdata
-                |        |
-                |        +-------> Host-Gateway:25
-                |                   |
-                +-------------------+
-                                    |
-                             Postfix (Host)
-                              lokale Mailbox
-                                    |
-                           /var/mail/cookieadmin
+~~~mermaid
+flowchart LR
+    browser["Webbrowser"]
+    workstation["Admin-Rechner"]
 
-Ubuntu-Host zusätzlich:
-- UFW-Firewall / SSH
-- Certbot / Nginx
-- Backup-Cronjob → /var/backups/cookiesuite/
-- Docker-Volumes für Daten
+    subgraph host["Ubuntu-Produktivserver"]
+        proxy["Nginx · HTTPS mit Let's Encrypt"]
+        sshd["OpenSSH · cookieops"]
+        postfix["Postfix"]
+        mailbox["Lokales Postfach · cookieadmin"]
+        cron["Täglicher Backup-Cronjob"]
+        backup["Dumps · /var/backups/cookiesuite/"]
 
-GitHub:
-- vanthunder/CookieSuite
-- GitHub Actions CI (Tests)
-- zukünftig: Versionierung von Images und CD
+        subgraph compose["Docker Compose"]
+            app["CookieSuite · Laravel und Apache"]
+            db[("PostgreSQL 16 · Volume pgdata")]
+        end
+
+        proxy -->|"127.0.0.1:8080"| app
+        app -->|"5432 intern"| db
+        app -->|"SMTP 25 intern"| postfix --> mailbox
+        cron -->|"pg_dump"| db
+        cron -->|"schreibt Dump"| backup
+    end
+
+    browser -->|"80 leitet auf 443 um"| proxy
+    workstation -->|"22 mit SSH-Schlüssel"| sshd
 ~~~
 
-### 3.2 Warum verwenden wir getrennte Dienste?
+Im Browser läuft der Zugriff über Nginx zur App. Für die Wartung gibt es einen eigenen SSH-Zugang zum Ubuntu-Host. Quellcode und automatische Tests liegen bei GitHub. Der Ablauf für Produktivupdates steht in [Kapitel 8](#8-anwendung-sicher-aktualisieren).
 
-- **Nginx** nimmt öffentlich zugängliche Anfragen an und kümmert sich um TLS-Zertifikate. Er läuft bewusst **außerhalb von Docker**, weil dies Teil der Challenge ist.
+### 3.2 Zuständigkeiten der Dienste
+
+- **Nginx** nimmt auf dem Ubuntu-Host öffentliche Anfragen an, terminiert HTTPS und leitet sie an den App-Container weiter. Certbot verwaltet die TLS-Zertifikate.
 - **Apache/PHP/Laravel** verarbeiten Webanfragen im Anwendungscontainer. Apache verwendet als öffentliches Verzeichnis `/var/www/html/public`.
 - **PostgreSQL** ist ein eigener Container. Die Datenbank bekommt keine öffentliche Portfreigabe.
 - **Docker Compose** definiert diese Container, das interne Netzwerk, ihre Abhängigkeiten und Volumes.
-- **Postfix** ist ein echter SMTP-Server auf Ubuntu. Laravel sendet an ihn über die private Docker-Bridge, nicht über einen öffentlichen Mailport.
+- **Postfix** läuft auf Ubuntu. Laravel erreicht ihn per SMTP über die private Docker-Bridge.
 - **Docker-Volumes** bewahren Daten unabhängig vom Lebenszyklus einzelner Container auf.
 
 ### 3.3 Die Ports verstehen
@@ -165,7 +150,7 @@ GitHub:
 | `5432/tcp` | PostgreSQL | Nur im Docker-Netzwerk |
 | `127.0.0.1:25` und `172.18.0.1:25` | Postfix | Nur Host / internes Docker-Netzwerk |
 
-**Achtung:** `172.18.0.1` ist die während der Challenge beobachtete Docker-Gateway-IP. Docker-Netzwerke können sich ändern. Nach einer Netzwerkkonfigurationsänderung immer IP, Interface und UFW-Regel erneut prüfen.
+`172.18.0.1` ist die dokumentierte Docker-Gateway-IP. Nach Änderungen am Compose-Netzwerk Gateway, Bridge-Interface, Postfix-Listener, `MAIL_HOST` und UFW-Regel gemeinsam prüfen.
 
 Bei Docker und UFW gelten besondere Regeln: Docker konfiguriert eigene Paketfilter-/NAT-Regeln. Deshalb **nicht allein** aus `ufw status` auf die Erreichbarkeit aller Docker-Ports schließen. Weitere Informationen: https://docs.docker.com/engine/network/packet-filtering-firewalls/
 
@@ -216,8 +201,8 @@ CookieSuite/
 | `/etc/cron.d/cookiesuite-backup` | Zeitplan des Backup-Jobs |
 | `/var/backups/cookiesuite/` | Lokale PostgreSQL-Sicherungen |
 | `/var/log/cookiesuite-backup.log` | Ausgaben des Backup-Cronjobs |
-| `/etc/ssh/sshd_config.d/00-cookiecraft.conf` | SSH-Härtung |
-| `/root/.ssh/authorized_keys` | Derzeitiger öffentlicher Root-SSH-Key-Zugang |
+| `/etc/ssh/sshd_config` und `/etc/ssh/sshd_config.d/00-cookiecraft.conf` | SSH-Regeln. Bei Änderungen die wirksamen Werte mit `sudo sshd -T` prüfen. |
+| `/home/cookieops/.ssh/authorized_keys` | Freigegebene öffentliche Schlüssel für `cookieops` |
 
 **Wichtig:** Git alleine sichert **nicht** diese Host-Dateien oder die produktiven Docker-Volumes. Bei einem Neuaufbau müssen sie separat wiederhergestellt beziehungsweise neu erzeugt werden.
 
@@ -225,19 +210,109 @@ CookieSuite/
 
 ## 5. Auf den Server zugreifen
 
-### 5.1 Anmeldung mit SSH
+### 5.1 Zugang für einen weiteren Rechner oder eine neue Person
 
-SSH ist ein verschlüsseltes Protokoll, über das man einen Linux-Server aus der Ferne administrieren kann.
+SSH öffnet ein verschlüsseltes Terminal auf dem Ubuntu-Produktivserver. Der Server ist über `cookiecraft.bizfactory.tech` auf Port `22` erreichbar. Für den vorhandenen Betriebszugang ist `cookieops` das SSH-Konto. `cookieadmin` empfängt lokale Benachrichtigungsmails.
 
-Auf dem eingerichteten Windows-PC funktioniert derzeit:
+| Situation | Konto auf dem Server | Schlüssel |
+| --- | --- | --- |
+| Dieselbe Person nutzt einen weiteren Rechner | Das vorhandene Konto, zum Beispiel `cookieops` | Auf dem weiteren Rechner einen eigenen Schlüssel erzeugen |
+| Eine weitere Person übernimmt Betriebsaufgaben | Ein persönliches Linux-Konto für diese Person | Auf ihrem Rechner einen eigenen Schlüssel erzeugen. `sudo` nur für Aufgaben mit erhöhten Rechten vergeben. |
 
-~~~powershell
-ssh cookiecraft
+~~~mermaid
+sequenceDiagram
+    participant PC as Neuer Rechner
+    participant Admin as Bestehender Admin
+    participant Host as Ubuntu-Server
+    PC->>PC: SSH-Schlüsselpaar erzeugen
+    PC->>Admin: Öffentlichen Schlüssel (.pub) übergeben
+    Admin->>Host: Schlüssel dem richtigen Konto zuordnen
+    Admin->>PC: Server-Fingerabdruck separat mitteilen
+    PC->>Host: Fingerabdruck prüfen und per SSH anmelden
+    Host-->>PC: Sitzung unter dem eigenen Linux-Konto
 ~~~
 
-`cookiecraft` ist ein **lokaler SSH-Alias** in `%USERPROFILE%\.ssh\config`, kein weltweit gültiger Hostname. Andere Administratoren benötigen einen eigenen SSH-Key und eine eigene Konfiguration.
+### 5.2 Auf dem eigenen Rechner einen Schlüssel erzeugen
 
-Nach Einrichtung des künftigen Benutzers `cookieops` kann die eigene Windows-Konfiguration ungefähr so aussehen:
+Öffne **PowerShell** unter Windows oder das **Terminal** unter macOS oder Linux. `ssh -V` zeigt, ob der OpenSSH-Client verfügbar ist. Fehlt er unter Windows, installiere die optionale Funktion **OpenSSH-Client**. [Microsoft-Anleitung zu OpenSSH](https://learn.microsoft.com/en-us/windows-server/administration/openssh/openssh_install_firstuse)
+
+**Windows (PowerShell)**
+
+~~~powershell
+New-Item -ItemType Directory -Force "$env:USERPROFILE\.ssh" | Out-Null
+ssh-keygen -t ed25519 -f "$env:USERPROFILE\.ssh\cookiecraft_ed25519"
+Get-Content "$env:USERPROFILE\.ssh\cookiecraft_ed25519.pub"
+~~~
+
+**macOS und Linux (Terminal)**
+
+~~~bash
+mkdir -p ~/.ssh
+chmod 700 ~/.ssh
+ssh-keygen -t ed25519 -f ~/.ssh/cookiecraft_ed25519
+cat ~/.ssh/cookiecraft_ed25519.pub
+~~~
+
+Wähle beim Erstellen eine Passphrase. Falls `ssh-keygen` fragt, ob es eine vorhandene Datei überschreiben soll, brich ab und verwende einen freien Dateinamen. Passe den Namen anschließend auch im Anmeldebefehl und im Alias an.
+
+Gib die `.pub`-Datei oder deren vollständige `ssh-ed25519`-Zeile über den vereinbarten internen Kanal an den zuständigen Admin weiter. Gib dabei das gewünschte Konto und den Rechner an. Die Datei **ohne `.pub`** ist dein privater Schlüssel und bleibt auf dem Gerät.
+
+### 5.3 Auf dem Server den öffentlichen Schlüssel freigeben
+
+Diesen Schritt führt ein Admin in einer bestehenden Ubuntu-Sitzung aus. Für eine weitere Person zuerst ein persönliches Konto anlegen. `anna` steht hier für den vereinbarten Linux-Benutzernamen.
+
+~~~bash
+sudo adduser anna
+~~~
+
+`adduser` fragt nach einem Passwort für das Linux-Konto. Es kann später für `sudo` gebraucht werden. Die SSH-Anmeldung erfolgt weiterhin mit dem Geräteschlüssel.
+
+Wenn diese Person administrative Aufgaben übernimmt, gib ihr die dafür nötigen Rechte. Auf diesem Ubuntu-Host gewährt die Gruppe `sudo` weitreichende Administrationsrechte.
+
+~~~bash
+sudo usermod -aG sudo anna
+~~~
+
+Bei einem weiteren Rechner für dasselbe Konto direkt hier beginnen. Setze `account` auf das Zielkonto, etwa `anna` für die neue Person oder `cookieops` für den bestehenden Zugang. Der Befehl liest das Home-Verzeichnis des Kontos aus Ubuntu aus.
+
+~~~bash
+account=cookieops
+account_home=$(getent passwd "$account" | cut -d: -f6)
+
+if [ -n "$account_home" ] && [ -d "$account_home" ]; then
+    key_file="$account_home/.ssh/authorized_keys"
+    sudo install -d -m 700 -o "$account" -g "$(id -gn "$account")" "$account_home/.ssh" &&
+        sudo -u "$account" touch "$key_file" &&
+        sudo -u "$account" chmod 600 "$key_file" &&
+        sudo -u "$account" nano "$key_file"
+else
+    printf 'Home-Verzeichnis für %s nicht gefunden. Benutzerkonto prüfen.\n' "$account"
+fi
+~~~
+
+Hänge den neuen öffentlichen Schlüssel als eigene Zeile an und erhalte alle vorhandenen Einträge. In `nano` speicherst du mit `Strg+O`, bestätigst mit `Enter` und beendest mit `Strg+X`. Mit `sudo ssh-keygen -lf "$key_file"` lassen sich die eingetragenen Fingerabdrücke prüfen. Die Person am neuen Rechner kann den Fingerabdruck ihrer `.pub`-Datei ebenfalls mit `ssh-keygen -lf` prüfen. Halte die bestehende Sitzung offen, bis die Anmeldung vom neuen Rechner funktioniert.
+
+### 5.4 Zum ersten Mal anmelden und Rechte prüfen
+
+Vor der ersten Verbindung holst du den **ED25519-Fingerabdruck des Servers** beim zuständigen Admin ein. Dieser liest ihn über eine bereits verifizierte SSH-Sitzung oder die Anbieter-Konsole aus und teilt ihn über den vereinbarten internen Kanal mit.
+
+~~~bash
+ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub
+~~~
+
+Führe dann auf dem eigenen Rechner den Anmeldebefehl aus. Ersetze `cookieops` durch deinen Benutzernamen, falls dir ein persönliches Konto zugeteilt wurde. OpenSSH löst `~` in diesem Befehl auf allen drei Betriebssystemen zum eigenen Benutzerordner auf.
+
+~~~shell
+ssh -i ~/.ssh/cookiecraft_ed25519 -o IdentitiesOnly=yes -o HostKeyAlgorithms=ssh-ed25519 cookieops@cookiecraft.bizfactory.tech
+~~~
+
+Vergleiche beim ersten Verbindungsaufbau den angezeigten `SHA256:…`-Wert mit dem mitgeteilten Fingerabdruck. Bestätige mit `yes`, wenn beide übereinstimmen. Bei einem abweichenden oder plötzlich geänderten Fingerabdruck brich ab und lass den zuständigen Admin den Host überprüfen.
+
+Führe in der neuen Sitzung `whoami` aus. Bei einem Administratorkonto prüfst du außerdem `sudo whoami`. Die erwarteten Ausgaben sind der eigene Linux-Benutzername und `root` für den zweiten Befehl. Die **Schlüssel-Passphrase** entsperrt den privaten Schlüssel auf deinem Rechner. `sudo` kann separat nach dem **Passwort deines Linux-Kontos** fragen. `exit` beendet die Sitzung.
+
+### 5.5 Einen Kurzbefehl für weitere Anmeldungen einrichten
+
+Lege auf dem eigenen Rechner eine Datei `config` im Ordner `.ssh` an oder öffne die bestehende. Unter Windows ist das `%USERPROFILE%\.ssh\config`, unter macOS und Linux `~/.ssh/config`. Speichere sie ohne Dateiendung. Verwende für `Host cookiecraft` genau einen Block.
 
 ~~~sshconfig
 Host cookiecraft
@@ -245,43 +320,26 @@ Host cookiecraft
     User cookieops
     IdentityFile ~/.ssh/cookiecraft_ed25519
     IdentitiesOnly yes
-    IdentityAgent none
+    HostKeyAlgorithms ssh-ed25519
     StrictHostKeyChecking ask
 ~~~
 
-Der tatsächlich verwendete private Schlüssel kann anders heißen. Bei einem neuen Server oder geänderten Host-Key **immer den Fingerprint aus vertrauenswürdiger Quelle prüfen**, statt Warnungen blind zu bestätigen.
+Passe `User` und `IdentityFile` an deinen Zugang an. Danach genügt `ssh cookiecraft` auf diesem Rechner. `ssh -G cookiecraft` zeigt, welcher Benutzername, Zielhost und Schlüsselpfad für den Alias wirksam sind. Falls ein SSH-Agent bereits viele Schlüssel lädt und der Server `Too many authentication failures` meldet, kannst du in diesem Alias zusätzlich `IdentityAgent none` setzen.
 
-### 5.2 Was ist ein SSH-Key?
+### 5.6 Zugang widerrufen oder Fehler eingrenzen
 
-Ein SSH-Schlüsselpaar besteht aus:
-
-- **privatem Schlüssel:** bleibt ausschließlich auf dem eigenen PC und darf nicht weitergegeben werden;
-- **öffentlichem Schlüssel:** steht auf dem Server in der Datei `authorized_keys`.
-
-Der Server erlaubt die Anmeldung nur, wenn der passende private Schlüssel nachgewiesen wird. Es wurde konfiguriert, dass Passwort-Anmeldungen über SSH nicht erlaubt sind.
-
-### 5.3 Aktueller und zukünftiger Benutzer
-
-**Aktuell:** In der Challenge wurde mit `root` gearbeitet. Die Schlüsselanmeldung ist eingerichtet und ein Passwortlogin deaktiviert.
-
-**Geplant:** Ein eigener Admin-Benutzer `cookieops` mit `sudo`-Rechten. Dieser ist **noch nicht** angelegt. Er ist nicht derselbe Benutzer wie `cookieadmin`, der nur lokale E-Mails empfängt.
-
-**Sichere Reihenfolge beim späteren Wechsel:**
-
-1. Vorhandene SSH-Sitzung offen lassen.
-2. `cookieops` anlegen und `sudo`-Rechte gezielt vergeben.
-3. Öffentlichen SSH-Key für `cookieops` hinterlegen, Dateiberechtigungen kontrollieren.
-4. In einer **neuen** Verbindung SSH-Key-Login und `sudo` testen.
-5. Erst danach `PermitRootLogin no` setzen und SSH-Konfiguration neu laden.
-6. Erneut eine neue Verbindung testen, bevor die alte geschlossen wird.
-
-**Keinen Benutzer vorschnell zur Gruppe `docker` hinzufügen:** Wer direkten Zugriff auf den Docker-Socket hat, kann damit praktisch Host-Root-Rechte erlangen. Für Wartung lieber kontrolliert `sudo docker compose ...` verwenden.
+| Meldung oder Anlass | Vorgehen |
+| --- | --- |
+| `Permission denied (publickey)` | Zielkonto, ausgewählten Schlüssel und dessen Eintrag in `authorized_keys` prüfen. `.ssh` hat Modus `700`, `authorized_keys` Modus `600`. Beides gehört dem Zielkonto. |
+| `Connection timed out` | Zieladresse und Erreichbarkeit von Port `22` prüfen. Falls nötig, die Anbieter-Konsole zur Diagnose verwenden. |
+| Rechner verloren oder ausgemustert | Den Fingerabdruck des Geräteschlüssels zuordnen und genau dessen Zeile aus `authorized_keys` entfernen. Das sperrt neue Verbindungen mit diesem Schlüssel. Bei einem Verlust laufende Sitzungen mit dem zuständigen Admin prüfen. |
+| Person scheidet aus | Persönlichen Zugang und gegebenenfalls `sudo`-Rechte entziehen. Laufende Sitzungen und weitere Berechtigungen prüfen. |
 
 ---
 
 ## 6. Erstinstallation und Konfiguration
 
-Dieser Abschnitt hilft bei einem **frischen, freigegebenen Server**. Er ist **keine Aufforderung**, die bereits laufende Produktivinstallation neu aufzusetzen.
+Diese Schritte gelten für einen neuen Host oder einen Wiederaufbau. Für ein Release auf dem laufenden System gilt [Kapitel 8](#8-anwendung-sicher-aktualisieren).
 
 ### 6.1 Voraussetzungen
 
@@ -309,7 +367,7 @@ sudo git clone https://github.com/vanthunder/CookieSuite.git cookiesuite
 cd /opt/cookiesuite
 ~~~
 
-Falls das Repository bereits existiert, **nicht nochmals in dasselbe Verzeichnis klonen**, sondern zunächst `git status` und `git remote -v` prüfen.
+Falls das Repository bereits existiert, prüfe in `/opt/cookiesuite` zuerst `sudo git status` und `sudo git remote -v`. Der produktive Checkout gehört `root`.
 
 ### 6.3 Produktive `.env`-Datei
 
@@ -377,7 +435,7 @@ Was geschieht?
 
 `--force` ist erforderlich, weil Laravel im Produktionsmodus vor destruktionsrelevanten Operationen Rückfragen stellt.
 
-### 6.5 Ersten Erfolg prüfen
+### 6.5 Inbetriebnahme prüfen
 
 ~~~bash
 sudo docker compose ps
@@ -386,7 +444,7 @@ curl -fsSI http://127.0.0.1:8080/up
 curl -fsSI https://cookiecraft.bizfactory.tech/up
 ~~~
 
-Im Browser anschließend **einen Testkeks erstellen, anzeigen und bearbeiten**. Ein HTTP-200 beweist zunächst nur, dass der Server antwortet; es ersetzt keinen Anwendungstest.
+Öffne die Startseite im Browser. Prüfe bei der Inbetriebnahme mit einem eindeutig gekennzeichneten Testdatensatz das Anlegen, Anzeigen, Bearbeiten und Löschen sowie die lokale Benachrichtigung. Entferne den Testdatensatz nach der Prüfung.
 
 ---
 
@@ -441,78 +499,60 @@ sudo docker compose config --services
 
 ## 8. Anwendung sicher aktualisieren
 
-### 8.1 Überblick: Wie kommt neuer Code auf den Server?
+### 8.1 Releaseablauf
 
-~~~text
-VS Code / lokale Entwicklung
-        |
-        v
-GitHub Desktop → Commit → Push
-        |
-        v
-GitHub-Fork / Branch main
-        |
-        v
-GitHub Actions → Composer / Migration / Laravel-Tests
-        |
-        v
-Freigegebener Code → Git Pull auf Ubuntu
-        |
-        v
-Docker-Image neu bauen → Container aktualisieren
-        |
-        v
-Datenbankmigrationen → Healthcheck → Funktionstest
+~~~mermaid
+flowchart LR
+    code["Commit auf main"] --> ci["GitHub Actions"]
+    ci --> release["Commit prüfen und freigeben"]
+    release --> backup["Datenbank sichern"]
+    backup --> rollout["Image bauen und App aktualisieren"]
+    rollout --> check["Migration und Funktionstest"]
 ~~~
 
 **Wichtig:** Aktuell ist das Ausrollen **manuell**. Die CI läuft automatisch; Continuous Deployment wurde bislang nicht eingerichtet.
 
-### 8.2 Checkliste VOR einem Update
+### 8.2 Release vorbereiten
 
 1. Geplante Änderung und Git-Commit identifizieren.
-2. Prüfen, ob der CI-Lauf grün ist.
+2. Prüfen, ob der CI-Lauf für genau diesen Commit erfolgreich war.
 3. Backup erstellen und Sicherung auf Lesbarkeit prüfen.
 4. Entscheiden, ob neue Datenbankmigrationen einen Rollback erschweren.
 5. Wartungsfenster und Ansprechpartner klären, wenn die Anwendung genutzt wird.
 
-### 8.3 Konkreter manueller Update-Ablauf
+### 8.3 Release manuell ausrollen
+
+Halte den aktuellen Commit für die Rückkehr fest. Hole `main` und ermittle den Release-Commit. `FETCH_HEAD` verweist auf den letzten Git-Abruf in diesem Checkout. Führe während des Rollouts keine parallelen Git-Abrufe oder Deployments auf dem Host aus.
 
 ~~~bash
 cd /opt/cookiesuite
 
-# 1. Bestehenden Stand prüfen
 sudo git status --short
 sudo git rev-parse --short HEAD
-
-# 2. Sicherheitskopie der Datenbank
-sudo /usr/local/sbin/cookiesuite-backup.sh
-
-# 3. Neue Commits holen und ansehen
-sudo git fetch origin main
-sudo git log --oneline HEAD..origin/main
-
-# 4. Nur bei geprüftem, sauberem Stand aktualisieren
-sudo git pull --ff-only origin main
-
-# 5. Image neu bauen und App aktualisieren
-sudo docker compose build app
-sudo docker compose up -d --no-deps app
-
-# 6. Datenbankschema aktualisieren
-sudo docker compose exec app php artisan migrate --force
-
-# 7. Technische Kontrolle
-sudo docker compose ps
-curl -fsSI https://cookiecraft.bizfactory.tech/up
+sudo git fetch origin main && sudo git rev-parse FETCH_HEAD
 ~~~
 
-Danach **im Browser** die wichtigsten Funktionen testen: Startseite, Keks anlegen, speichern, bearbeiten und lokaler Mailversand.
+Wenn `git status` lokale Änderungen zeigt, kläre zuerst, ob diese gesichert oder übernommen werden müssen. Übernimm den vollständigen SHA des freigegebenen Commits aus dem zugehörigen GitHub-Actions-Lauf in `release_commit`. Prüfe vor dem Rollout die Änderungen mit `sudo git log --oneline HEAD.."$release_commit"` und den Migrationsplan. Für Änderungen, die mit der laufenden App-Version inkompatibel sind, plane eine Schreibpause und die Reihenfolge des Rollouts separat.
 
-Falls `git status --short` Änderungen zeigt: **nicht blind `git reset --hard` ausführen**. Erst herausfinden, wem die Änderungen gehören.
+~~~bash
+release_commit=HIER_DEN_FREIGEGEBENEN_COMMIT_SHA_EINTRAGEN
+cd /opt/cookiesuite &&
+    working_tree=$(sudo git status --porcelain) &&
+    test -z "$working_tree" &&
+    sudo git merge-base --is-ancestor "$release_commit" FETCH_HEAD &&
+    sudo git merge-base --is-ancestor HEAD "$release_commit" &&
+    sudo /usr/local/sbin/cookiesuite-backup.sh &&
+    sudo git merge --ff-only "$release_commit" &&
+    sudo docker compose build app &&
+    sudo docker compose up -d --no-deps app &&
+    sudo docker compose exec -T app php artisan migrate --force &&
+    sudo docker compose ps &&
+    curl -fsSI https://cookiecraft.bizfactory.tech/up
+~~~
+
+Bei einem Fehler stoppt die Kette. Ermittle dann den erreichten Stand anhand von Git-Revision, Containerstatus, Logs und `migrate:status`. Prüfe nach einem erfolgreichen Rollout Startseite und Datenbankzugriff. Prüfe Schreibaktionen und die lokale Benachrichtigung mit einem gekennzeichneten Testdatensatz, wenn das Release diese Pfade ändert.
 
 ### 8.4 Wenn ein Update fehlschlägt: Rollback
-
-Für einen kleinen Demo-Server ist die praktikable Erstmaßnahme:
 
 1. Keine weiteren Deployments starten.
 2. Logs lesen und Auswirkungen prüfen.
@@ -528,7 +568,7 @@ sudo docker compose logs --tail=100 app
 
 **Nicht automatisch `php artisan migrate:rollback` auf Produktion ausführen!** Datenbankänderungen können Daten löschen oder nicht rückwärtskompatibel sein. Bei einem Datenbankschema-Problem braucht es einen eigens geplanten Rückweg und ggf. ein Restore.
 
-Für einen späteren echten CD-Prozess sollten Images mit Commit-SHA oder Digest unveränderlich versioniert werden. Dann ist ein Application-Rollback wesentlich einfacher als bei einem erneuten lokalen Build.
+Im [Zielbild für den automatisierten Rollout](#13-automatisierte-releases) wird die vorherige Image-Version über ihren Digest eindeutig referenziert.
 
 ---
 
@@ -581,33 +621,28 @@ test -n "$BACKUP" || { echo "Kein Backup gefunden"; exit 1; }
 sudo cat "$BACKUP" | sudo docker compose exec -T db pg_restore --list | head -n 20
 ~~~
 
-### 9.5 Wiederherstellungstest in eine SEPARATE Datenbank
+### 9.5 Wiederherstellung in einer separaten Datenbank testen
 
-**Dieser Test darf die echte Produktionsdatenbank nicht überschreiben.** Die folgenden Befehle erzeugen die zusätzliche Datenbank `cookiesuite_restore_test`. Vorher sicherstellen, dass dieser Name noch nicht verwendet wird.
+Führe die Restore-Probe bevorzugt in einer getrennten Umgebung mit PostgreSQL 16 aus. Die folgenden Befehle setzen dort denselben Compose-Dienst `db` und einen bereitgestellten Dump unter `/var/backups/cookiesuite/` voraus. Der Import startet erst, wenn die Datenbank `cookiesuite_restore_test` erfolgreich neu angelegt wurde.
 
 ~~~bash
-cd /opt/cookiesuite
+(
+    set -euo pipefail
+    cd /opt/cookiesuite
+    backup=$(sudo find /var/backups/cookiesuite -maxdepth 1 \
+        -type f -name 'cookiesuite-*.dump' | sort | tail -n 1)
+    test -n "$backup" || { printf 'Kein Dump gefunden.\n' >&2; exit 1; }
 
-BACKUP=$(sudo find /var/backups/cookiesuite -maxdepth  \
-  -type f -name 'cookiesuite-*.dump' | sort | tail -n 1)
-
-test -n "$BACKUP" || { echo "Kein Backup gefunden"; exit 1; }
-
-# Eigene leere Testdatenbank erstellen
-sudo docker compose exec -T db sh -c \
-  'createdb -U "$POSTGRES_USER" cookiesuite_restore_test'
-
-# Archiv in die TESTDATENBANK importieren
-set -o pipefail
-sudo cat "$BACKUP" | sudo docker compose exec -T db sh -c \
-  'pg_restore --exit-on-error --no-owner -U "$POSTGRES_USER" -d cookiesuite_restore_test'
-
-# Beispieldaten prüfen
-sudo docker compose exec -T db sh -c \
-  'psql -U "$POSTGRES_USER" -d cookiesuite_restore_test -c "SELECT COUNT(*) FROM cookies;"'
+    sudo docker compose exec -T db sh -c \
+        'createdb -U "$POSTGRES_USER" cookiesuite_restore_test'
+    sudo cat "$backup" | sudo docker compose exec -T db sh -c \
+        'pg_restore --exit-on-error --no-owner -U "$POSTGRES_USER" -d cookiesuite_restore_test'
+    sudo docker compose exec -T db sh -c \
+        'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d cookiesuite_restore_test -c "SELECT COUNT(*) FROM cookies;"'
+)
 ~~~
 
-Erst nachdem man das Ergebnis geprüft und **sicher ist, dass die Testdatenbank nicht gebraucht wird**, kann man sie entfernen:
+Dokumentiere Dump-Datei, Zeitpunkt und Ergebnis der Datenprüfung. Entferne die Testdatenbank nach Abschluss der Probe, sobald sie für die Auswertung entbehrlich ist.
 
 ~~~bash
 sudo docker compose exec -T db sh -c \
@@ -616,7 +651,7 @@ sudo docker compose exec -T db sh -c \
 
 Ein Restore in die **echte** Produktionsdatenbank ist eine separate, potenziell destruktive Notfallmaßnahme: Anwendung stoppen bzw. Schreibzugriffe verhindern, Wiederherstellungsziel und Verantwortliche bestätigen, vorhandenen Zustand sichern und Restore im Wartungsfenster durchführen.
 
-### 9.6 Was gehört noch zu einem professionellen Backup-Konzept?
+### 9.6 Offene Maßnahmen für die Datensicherung
 
 **Noch offen:**
 
@@ -630,7 +665,7 @@ Ein Restore in die **echte** Produktionsdatenbank ist eine separate, potenziell 
 
 ## 10. Mailserver: Postfix und lokale E-Mails
 
-### 10.1 Was wurde eingerichtet?
+### 10.1 SMTP auf dem Ubuntu-Host
 
 Postfix läuft **direkt auf dem Ubuntu-Host**. Laravel übergibt Nachrichten per SMTP über das private Docker-Netzwerk. Der Host hat aktuell für Postfix die Listener:
 
@@ -645,9 +680,11 @@ Die UFW-Regel für SMTP ist auf das passende interne Docker-Interface und Quell-
 2. Laravel validiert den Inhalt und schreibt den Datensatz nach PostgreSQL.
 3. Der `CookieController` ruft die Laravel-Mailfunktion auf.
 4. Symfony/Laravel übergibt die Nachricht an Postfix.
-5. Postfix nimmt die E-Mail an und liefert sie – in der Demo – an ein lokales Admin-Postfach aus.
+5. Postfix stellt die Nachricht an das lokale Postfach `cookieadmin` zu.
 
 Der relevante Anwendungscode liegt in `app/Http/Controllers/CookieController.php` und `app/Mail/CookieCreated.php`. Empfänger ist die Konfigurationsvariable `ADMIN_MAIL`.
+
+Laravel speichert den Keks vor dem Mailversand. Tritt beim Absenden ein SMTP-Fehler auf, prüfe zuerst die Keksübersicht und die App-Logs. Ein erneutes Absenden kann einen weiteren Datensatz anlegen.
 
 ### 10.3 Lokale E-Mails lesen
 
@@ -682,18 +719,13 @@ sudo ufw status verbose
 
 Erwartung: Nur `127.0.0.1:25` und die aktuelle private Docker-Gateway-IP; **nicht** `0.0.0.0:25`.
 
-Die SMTP-Verbindung von Laravel zu Postfix nutzt im aktuellen internen Demo-Setup keine STARTTLS-Aushandlung. Das ist nur vertretbar, wenn der Transportpfad auf das vertrauenswürdige lokale Netz beschränkt bleibt. Für andere Netzwerke ist eine angemessene TLS-Konfiguration erforderlich.
+Die SMTP-Verbindung von Laravel zu Postfix nutzt auf der privaten Docker-Bridge kein STARTTLS. Bei einer Verlagerung des Maildienstes in ein anderes Netz muss die SMTP-Verbindung verschlüsselt und die Zertifikatsprüfung eingerichtet werden.
 
-### 10.5 Warum funktionieren externe Mails noch nicht zuverlässig?
+### 10.5 Externe Zustellung
 
-Während der Challenge wurde der direkte SMTP-Versand auf Port 25 getestet; IPv4 und IPv6 konnten externe SMTP-Server erreichen.
+Der aktive Benachrichtigungsweg führt in das lokale Systempostfach. Bei Tests des direkten externen Versands war TCP 25 erreichbar. Microsoft antwortete mit `421`. T-Online wies die Absender-IP mit `554` ab.
 
-Trotzdem ist **Netzwerk-Erreichbarkeit keine Zustellgarantie**:
-
-- Ein Microsoft-Empfänger meldete vorübergehend eine `421`-Ablehnung.
-- T-Online wies die Quell-IP mit `554 ... Dialup/transient IP not allowed` zurück.
-
-Eine funktionierende lokale E-Mail wird deshalb nicht als gelungene externe Zustellung ausgegeben. Für echten Produktivbetrieb braucht CookieCraft eine **freigegebene Absenderdomain**, passende SPF-/DKIM- und PTR-/Reverse-DNS-Einträge und ggf. einen **vom Unternehmen freigegebenen** SMTP-Relay. **Keine privaten E-Mail-Zugangsdaten** auf dem fremden Challenge-Server hinterlegen.
+Für externe Empfänger einen freigegebenen SMTP-Relay und eine Absenderdomain festlegen. Die zur Versandroute passenden SPF-, DKIM- und DMARC-Einträge mit der zuständigen Stelle abstimmen. Bei direktem Versand gehört auch der PTR-Eintrag der sendenden IP dazu. Vor der Umstellung von `ADMIN_MAIL` die Zustellung an ein freigegebenes externes Testpostfach prüfen.
 
 ### 10.6 Fehlerbilder
 
@@ -704,7 +736,7 @@ Eine funktionierende lokale E-Mail wird deshalb nicht als gelungene externe Zust
 | Mail bleibt in Queue | Remote-Server hat Nachricht nicht angenommen | `postqueue -p`, `journalctl -t postfix/smtp` |
 | Lokale Mail fehlt | Lokaler Nutzer/Empfängerdomain nicht richtig konfiguriert | `postconf mydestination`, `id cookieadmin`, `postfix/local`-Logs |
 
-**Nur gezielt** eine bekannte Testmail anhand ihrer Queue-ID mit `postsuper -d QUEUE_ID` löschen. Nicht pauschal die Warteschlange leeren.
+Wenn eine eindeutig identifizierte Nachricht entfernt werden muss, verwende ihre Queue-ID mit `sudo postsuper -d QUEUE_ID`. Dabei wird die Nachricht endgültig aus der Warteschlange gelöscht.
 
 ---
 
@@ -748,13 +780,12 @@ Die Zertifikate und Schlüssel liegen unter `/etc/letsencrypt/`. Den **privaten 
 
 ~~~bash
 sudo nano /etc/nginx/sites-available/cookiesuite
-sudo nginx -t
-sudo systemctl reload nginx
+sudo nginx -t && sudo systemctl reload nginx
 ~~~
 
 Nur nach erfolgreichem `nginx -t` neu laden. Bei Fehlern bleibt die bisherige funktionierende Konfiguration möglichst unverändert.
 
-Laravel vertraut in `bootstrap/app.php` derzeit Proxy-Headern über `trustProxies(at: '*')`. Das funktioniert im kontrollierten Demo-Setup, sollte aber beim späteren Netzwerkausbau auf konkret vertrauenswürdige Proxy-Adressen begrenzt werden.
+Laravel vertraut über `trustProxies(at: '*')` den Proxy-Headern. Der App-Port ist auf Host-Loopback gebunden, Nginx ist der öffentliche Einstiegspunkt. Vor einer Änderung dieses Netzwerkpfads die von Nginx gesetzten Weiterleitungsheader prüfen und das Vertrauen in Laravel auf die vorgesehenen Proxy-Adressen begrenzen.
 
 ---
 
@@ -767,7 +798,7 @@ Laravel vertraut in `bootstrap/app.php` derzeit Proxy-Headern über `trustProxie
 **Vorhandene Datei:** `.github/workflows/ci.yml`  
 **GitHub Actions:** https://github.com/vanthunder/CookieSuite/actions
 
-Der Workflow wurde auf dem Branch `main` eingerichtet. Ein erfolgreicher (grüner) Lauf wurde während der Challenge bestätigt.
+Für ein Release den Status der Workflow-Ausführung für den freizugebenden Commit in GitHub Actions prüfen.
 
 ### 12.2 Wann startet er?
 
@@ -790,15 +821,9 @@ Der Workflow wurde auf dem Branch `main` eingerichtet. Ein erfolgreicher (grüne
 
 Die Datenbank und die Test-Umgebungsvariablen von GitHub Actions sind **nicht** die Produktionsdatenbank. Der Mailer ist in CI auf `array` gesetzt; Tests verschicken keine realen SMTP-Nachrichten.
 
-### 12.4 Was bedeutet „grüner Lauf“?
+### 12.4 Testabdeckung
 
-Die **konfigurierten** Schritte haben den Test bestanden. Das beweist nicht, dass jede Funktion getestet ist. Zusätzliche sinnvolle Tests wären:
-
-- Keks erstellen, bearbeiten und löschen;
-- Validierungsfehler (fehlender Name, ungültige Menge);
-- ausgelöste Admin-Mail mit Laravel `Mail::fake()` nachweisen;
-- PHP-Formatierung und statische Analyse;
-- Docker-Image in CI bauen und einen Smoke-Test durchführen.
+Die CI prüft Composer, die Datenbankmigrationen und den HTTP-Status der Startseite. Anlegen, Bearbeiten und Löschen von Keksen, Formularvalidierung und SMTP-Zustellung sind bislang nicht automatisiert abgedeckt. Änderungen an diesen Pfaden erfordern einen Funktionstest nach Abschnitt 8.3.
 
 ### 12.5 Was mache ich bei einem roten Lauf?
 
@@ -813,68 +838,28 @@ Die **konfigurierten** Schritte haben den Test bestanden. Das beweist nicht, das
 
 ---
 
-## 13. Continuous Delivery / Deployment (CD)
+## 13. Automatisierte Releases
 
-### 13.1 Unterschied zwischen CI, Delivery und Deployment
+Der automatische Rollout mit manueller Freigabe ist als nächster Ausbauschritt vorgesehen. Für laufende Releases gilt der [manuelle Ablauf](#83-release-manuell-ausrollen).
 
-- **CI:** Code automatisch testen und prüfen.
-- **Continuous Delivery:** erfolgreich geprüfter Stand steht jederzeit für eine **bewusste Freigabe** bereit.
-- **Continuous Deployment:** erfolgreich geprüfter Stand wird **automatisch ohne manuellen Freigabeschritt** ausgerollt.
-
-Für CookieCraft ist bisher **CI implementiert**. Das nachfolgende CD-Verfahren ist ein **Konzept, noch nicht produktiv eingerichtet**.
-
-### 13.2 Vorschlag für einen sicheren CD-Prozess
-
-~~~text
-GitHub Push / Pull Request
-         |
-         v
-CI: Tests + Codeanalyse + Image-Build
-         |
-         v
-Versioniertes Docker-Image (Git SHA / Digest)
-         |
-         v
-Container Registry, z. B. GitHub Container Registry (GHCR)
-         |
-         v
-Staging-Deployment + Smoke-Test
-         |
-         v
-Freigabe für Produktion (Continuous Delivery)
-         |
-         v
-Produktions-Backup + Wartungs-/Migrationsprüfung
-         |
-         v
-Versioniertes Image auf Ubuntu ausrollen
-         |
-         v
-Healthchecks + kurzer Funktionstest + Monitoring
-         |
-         +---- Fehler? → Code-Rollback / Notfallverfahren
+~~~mermaid
+flowchart LR
+    ci["CI erfolgreich"] --> image["Image bauen und in Registry veröffentlichen"]
+    image --> staging["Image in Testumgebung prüfen"]
+    staging --> approval["Produktionsfreigabe"]
+    approval --> backup["Backup und Migrationsprüfung"]
+    backup --> rollout["Geprüftes Image ausrollen"]
+    rollout --> health{"Anwendung erreichbar und funktionsfähig?"}
+    health -->|Ja| complete["Release dokumentieren"]
+    health -->|Nein| rollback["Alarm auslösen und Rückweg prüfen"]
 ~~~
 
-### 13.3 Technische Umsetzung – Empfehlungen
+- Einmal pro Release bauen und dasselbe Image in Test und Produktion über seinen Digest referenzieren. Den Digest dem Git-Commit zuordnen.
+- CI und Rollout getrennt ausführen. Den Produktivzugang auf den Deployment-Job begrenzen und die Freigabe im GitHub-Environment `production` abbilden.
+- Vor Migrationen eine lesbare Sicherung und einen erprobten Wiederherstellungsweg vorhalten. Den vorherigen Image-Digest sichern und die Kompatibilität mit dem Datenbankschema prüfen.
+- Nach dem Rollout `/up` und die betroffenen Anwendungspfade prüfen. Bei einem Fehler den Status melden und den Rückweg anhand des erreichten Migrationsstands wählen.
 
-1. Docker-Image **einmal in CI bauen**, nicht auf jedem Server neu aus dem Quellcode.
-2. Image mit Commit-SHA und/oder Digest versionieren, nicht ausschließlich `latest` verwenden.
-3. Image in eine Registry wie GHCR hochladen.
-4. Produktionszugang über **separaten, eingeschränkten Deployment-Zugang**, nicht Root-SSH.
-5. CI-Workflow und Produktiv-Deployment in **getrennten Jobs/Workflows** halten.
-6. GitHub-Environment `production` mit Freigabe- und Secret-Regeln einsetzen.
-7. Vor Datenbankmigrationen einen nachweisbaren Backup-/Restore-Pfad vorhalten.
-8. Container aktualisieren und `/up` + Anwendungsszenarien prüfen.
-9. Bei Fehlern Alarm auslösen; vorige Image-Version bereit halten.
-10. Datenbankmigrationen hinsichtlich **Abwärtskompatibilität** planen. Ein Container-Rollback rollt eine Datenbank nicht automatisch zurück.
-
-Für einen überschaubaren Produktivserver würde ich zunächst **Continuous Delivery mit manueller Freigabe** verwenden, bevor Vollautomatisierung sinnvoll ist.
-
-### 13.4 Beispiel für den Vortrag
-
-> „Unsere CI-Pipeline läuft bereits erfolgreich auf GitHub. Als nächsten Schritt würde ich nach den Tests ein versioniertes Docker-Image in GHCR veröffentlichen. Ein separater Deployment-Job könnte dieses Image nach Freigabe auf den Produktivserver ausrollen. Vor dem Rollout würde er ein Backup anstoßen; danach würden Healthchecks und Funktionstests laufen. Wichtig wäre ein klarer Rollback-Prozess, besonders bei Datenbankmigrationen.“
-
-Weiterführend: https://docs.github.com/en/actions/concepts/workflows-and-actions/deployment-environments
+[GitHub-Dokumentation zu Deployment-Umgebungen](https://docs.github.com/en/actions/concepts/workflows-and-actions/deployment-environments)
 
 ---
 
@@ -882,7 +867,8 @@ Weiterführend: https://docs.github.com/en/actions/concepts/workflows-and-action
 
 ### 14.1 Was bereits eingerichtet wurde
 
-- SSH-Key-Authentifizierung (Passwortlogin deaktiviert);
+- SSH-Schlüsselanmeldung über `cookieops` mit `sudo` bei Bedarf;
+- SSH-Passwortlogin und direkte Root-Anmeldung deaktiviert;
 - UFW aktiv mit `deny incoming`;
 - öffentlich nur SSH/HTTP/HTTPS vorgesehen;
 - PostgreSQL nur im internen Docker-Netz;
@@ -892,18 +878,20 @@ Weiterführend: https://docs.github.com/en/actions/concepts/workflows-and-action
 - öffentliches Webroot von Apache ist nur `public/`;
 - Nginx bedient HTTPS über Let's Encrypt.
 
-### 14.2 Zusätzlicher Administrator – noch ausstehend
+### 14.2 SSH-Regeln prüfen und sicher ändern
 
-**Geplant: `cookieops`** als normaler Benutzer mit bedarfsabhängiger `sudo`-Berechtigung. Vorgehen:
+`cookieops` verwendet für Wartung `sudo docker compose …`. Die Gruppe `docker` gewährt über den Docker-Socket praktisch dieselben Rechte wie `root` und ist für diesen Zugang nicht erforderlich.
 
-1. Benutzer anlegen;
-2. öffentlichen SSH-Key installieren;
-3. Rechte von `~/.ssh` und `authorized_keys` kontrollieren;
-4. `sudo`-Berechtigung prüfen;
-5. zweite SSH-Sitzung mit dem neuen Benutzer testen;
-6. erst anschließend Root-SSH-Login vollständig verbieten.
+In `/etc/ssh/sshd_config` steht `PermitRootLogin no` vor `Include`. Für globale Einstellungen verwendet OpenSSH den zuerst gelesenen Wert. Weitere Einträge in der Hauptdatei oder in `sshd_config.d/` können abweichen. Prüfe deshalb die wirksamen Werte mit `sudo sshd -T`. [OpenSSH-Serverkonfiguration](https://man.openbsd.org/sshd_config)
 
-An diesem Punkt **nichts blind an `sshd_config` ändern**, bevor ein alternativer, getesteter Zugang besteht.
+Halte bei einer Änderung die bestehende Admin-Sitzung offen und stelle sicher, dass die Anbieter-Konsole als Rückweg verfügbar ist. Prüfe die Syntax und lade die Konfiguration nur bei erfolgreicher Prüfung neu.
+
+~~~bash
+sudo sshd -t && sudo systemctl reload ssh
+sudo sshd -T | grep -E '^(permitrootlogin|passwordauthentication|kbdinteractiveauthentication|pubkeyauthentication) '
+~~~
+
+Erwartet werden `permitrootlogin no`, `passwordauthentication no`, `kbdinteractiveauthentication no` und `pubkeyauthentication yes`. Prüfe SSH-Login und `sudo whoami` in einem zweiten Terminal, bevor du die bisherige Sitzung beendest.
 
 ### 14.3 Firewall überprüfen
 
@@ -918,7 +906,7 @@ UFW verhindert nicht automatisch jede durch Docker selbst veröffentlichte Verbi
 
 ### 14.4 Wartung / Sicherheitsupdates
 
-Zum Zeitpunkt der Einrichtung meldete Ubuntu zahlreiche ausstehende Updates. Empfohlenes Vorgehen:
+Sicherheitsupdates im regelmäßigen Wartungsfenster prüfen und einspielen.
 
 1. Vorab Wartungsfenster und ggf. Snapshot/Offsite-Backup organisieren.
 2. Paketänderungen ansehen: `sudo apt update` und `apt list --upgradable`.
@@ -971,8 +959,8 @@ sudo ufw status verbose
 
 | Problem | Wahrscheinliche Ursachen | Erste Maßnahme |
 | --- | --- | --- |
-| Website nicht erreichbar | Nginx aus, DNS falsch, TLS-Problem | `systemctl status nginx`, `nginx -t`, `curl -I` |
-| HTTP 502 Bad Gateway | App-Container nicht erreichbar | `docker compose ps`, App-Logs, Port 8080 |
+| Website nicht erreichbar | Nginx aus, DNS falsch, TLS-Problem | `systemctl status nginx`, `sudo nginx -t`, `curl -I` |
+| HTTP 502 Bad Gateway | App-Container nicht erreichbar | `sudo docker compose ps`, App-Logs, Port 8080 |
 | HTTP 500 Server Error | Laravel-Konfiguration, Rechte, DB oder Codefehler | App-Logs, `migrate:status` |
 | Datenbankverbindung fehlgeschlagen | DB-Container nicht Healthy, falscher Host/Port | Compose/DB-Logs, DB_HOST=`db`, Port `5432` |
 | Nach Deploy fehlendes Feature | Altes Image, Migration fehlend | Commit-ID, Build, Migrationsstatus |
@@ -1003,12 +991,12 @@ sudo ufw status verbose
 
 1. Umfang feststellen: DNS, HTTPS, Nginx, Docker oder Datenbank?
 2. Sicherstellen, dass SSH-Zugriff besteht.
-3. `docker compose ps` und Logs prüfen.
-4. `nginx -t` und HTTPS-Healthcheck ausführen.
+3. In `/opt/cookiesuite` mit `sudo docker compose ps` und `sudo docker compose logs --tail=100 app db` den Containerzustand prüfen.
+4. `sudo nginx -t` und den HTTPS-Healthcheck ausführen.
 5. Bei Datenbankfehlern **keine Daten löschen**.
 6. Letztes funktionierendes Deployment und aktuelles Backup identifizieren.
 7. Fehler dokumentieren, Verantwortliche informieren, kontrolliert beheben.
-8. Nach der Wiederherstellung einen echten Anwendungstest durchführen.
+8. Nach der Wiederherstellung HTTPS, `/up`, die Startseite und die vom Ausfall betroffenen Funktionen prüfen.
 
 ### 16.2 Regelmäßige Betriebsaufgaben
 
@@ -1024,31 +1012,22 @@ sudo ufw status verbose
 ### 16.3 Was bei der Übergabe bereitliegen muss
 
 - aktueller Link zum GitHub-Repository und zur CI-Pipeline;
-- dokumentierter SSH-Zugangsprozess, **nicht** der private SSH-Key;
-- verantwortlicher Admin-Benutzer und Notfallzugang über die Anbieter-Konsole;
+- [SSH-Zugangsprozess](#5-auf-den-server-zugreifen) und interner Kontakt für die Freigabe neuer öffentlicher Schlüssel;
+- zuständiger Admin, verifizierter Server-Fingerabdruck und Notfallzugang über die Anbieter-Konsole;
 - Standort der produktiven `.env` und sichere Übergabe der Secrets;
 - Zugriff auf Host-/Nginx-/Postfix-/Docker-Konfigurationen;
 - Backup-Speicher und bestätigter Restore-Prozess;
 - Ansprechpartner für DNS, Domain, Zertifikate und Mail-Reputation;
 - Liste offener Sicherheits- und Betriebsaufgaben.
 
-### 16.4 Offene Punkte nach dem Challenge-Stand
+### 16.4 Offene Betriebsmaßnahmen
 
-- [x] Docker-Deployment mit Laravel und PostgreSQL
-- [x] Reverse Proxy mit HTTPS und HTTP-Weiterleitung
-- [x] Automatisiertes lokales Datenbank-Backup eingerichtet
-- [x] SSH-Key, deaktivierter Passwortlogin und UFW
-- [x] Postfix installiert und lokale Mailzustellung nachgewiesen
-- [x] GitHub-Fork und CI-Workflow mit erfolgreichem Testlauf
-- [x] CD-Verfahren als Konzept ausgearbeitet
-- [x] Betriebshandbuch im Repository
-- [ ] Dedizierten Administrator `cookieops` erstellen und Root-SSH endgültig sperren
-- [ ] Produktiven externen Mailversand mit Unternehmensfreigabe realisieren
-- [ ] Verschlüsselte Offsite-Backups einrichten
-- [ ] Vollständigen Restore-Test dokumentieren
-- [ ] Monitoring, Alarmierung und Sicherheitsupdates operationalisieren
-- [ ] Automatisierten CD-Workflow mit Freigaben/Versionierung umsetzen
-- [ ] Kubernetes-Aufgaben der separaten Challenge bearbeiten
+| Bereich | Nächster Schritt |
+| --- | --- |
+| Datensicherung | Verschlüsselte Kopie auf getrenntem Speicher ablegen und einen vollständigen Restore dokumentieren. |
+| Überwachung | Externen HTTPS-Check, Speicher- und Backup-Überwachung einrichten. Alarmweg und Empfänger mit einem Testalarm prüfen. |
+| Externe Benachrichtigungen | Freigegebenen SMTP-Relay und Absenderdomain festlegen und die Zustellung prüfen. |
+| Automatisierte Releases | Versionierte Images mit Freigabe, Funktionstest und Rückweg einführen. |
 
 ---
 
@@ -1089,7 +1068,3 @@ sudo ufw status verbose
 - PostgreSQL 16 `pg_restore`: https://www.postgresql.org/docs/16/app-pgrestore.html
 - GitHub Deployment Environments: https://docs.github.com/en/actions/concepts/workflows-and-actions/deployment-environments
 - Certbot: https://certbot.eff.org/
-
----
-
-*Dieses Dokument beschreibt die nachweisbar eingerichtete Challenge-Umgebung und unterscheidet ausdrücklich zwischen funktionierenden Komponenten, lokalen Demonstrationstests und noch offenen Produktionsanforderungen. Bei künftigen Änderungen bitte die Dokumentation zusammen mit der Infrastruktur aktualisieren.*
